@@ -123,6 +123,7 @@ const (
 	trinoClearSessionHeader    = trinoHeaderPrefix + `Clear-Session`
 	trinoSetRoleHeader         = trinoHeaderPrefix + `Set-Role`
 	trinoExtraCredentialHeader = trinoHeaderPrefix + `Extra-Credential`
+	trinoClientTags            = trinoHeaderPrefix + `Client-Tags`
 
 	trinoProgressCallbackParam       = trinoHeaderPrefix + `Progress-Callback`
 	trinoProgressCallbackPeriodParam = trinoHeaderPrefix + `Progress-Callback-Period`
@@ -144,8 +145,9 @@ const (
 	explicitPrepareConfig            = "explicitPrepare"
 	forwardAuthorizationHeaderConfig = "forwardAuthorizationHeader"
 
-	mapKeySeparator   = ":"
-	mapEntrySeparator = ";"
+	mapKeySeparator    = ":"
+	mapEntrySeparator  = ";"
+	commaListSeparator = ","
 )
 
 var (
@@ -175,6 +177,7 @@ type Config struct {
 	Schema                     string            // Schema (optional)
 	SessionProperties          map[string]string // Session properties (optional)
 	ExtraCredentials           map[string]string // Extra credentials (optional)
+	ClientTags                 []string          // Client tags (optional)
 	CustomClientName           string            // Custom client name (optional)
 	KerberosEnabled            string            // KerberosEnabled (optional, default is false)
 	KerberosKeytabPath         string            // Kerberos Keytab Path (optional)
@@ -270,6 +273,7 @@ func (c *Config) FormatDSN() (string, error) {
 		"schema":             c.Schema,
 		"session_properties": strings.Join(sessionkv, mapEntrySeparator),
 		"extra_credentials":  strings.Join(credkv, mapEntrySeparator),
+		"client_tags":        strings.Join(c.ClientTags, commaListSeparator),
 		"custom_client":      c.CustomClientName,
 		accessTokenConfig:    c.AccessToken,
 	} {
@@ -411,6 +415,16 @@ func newConn(dsn string) (*Conn, error) {
 			}
 		}
 	}
+	for k, v := range map[string]string{
+		trinoClientTags: query.Get("client_tags"),
+	} {
+		if v != "" {
+			c.httpHeaders[k], err = decodeCommaListHeader(k, v)
+			if err != nil {
+				return c, err
+			}
+		}
+	}
 
 	return c, nil
 }
@@ -456,6 +470,20 @@ func getAuthorization(token string) string {
 		return ""
 	}
 	return fmt.Sprintf("Bearer %s", token)
+}
+
+func decodeCommaListHeader(name, input string) ([]string, error) {
+	result := []string{}
+	for _, entry := range strings.Split(input, ",") {
+		if len(entry) == 0 {
+			return nil, fmt.Errorf("trino: Empty item %s: %s", name, input)
+		}
+		if !isASCII(entry) {
+			return nil, fmt.Errorf("trino: %s list item '%s' contains spaces or is not printable ASCII", name, entry)
+		}
+		result = append(result, entry)
+	}
+	return result, nil
 }
 
 // registry for custom http clients
