@@ -419,10 +419,10 @@ func newConn(dsn string) (*Conn, error) {
 		trinoClientTags: query.Get("client_tags"),
 	} {
 		if v != "" {
-			c.httpHeaders[k], err = decodeCommaListHeader(k, v)
-			if err != nil {
+			if err := validateCommaListHeader(k, v); err != nil {
 				return c, err
 			}
+			c.httpHeaders.Add(k, v)
 		}
 	}
 
@@ -472,18 +472,16 @@ func getAuthorization(token string) string {
 	return fmt.Sprintf("Bearer %s", token)
 }
 
-func decodeCommaListHeader(name, input string) ([]string, error) {
-	result := []string{}
-	for _, entry := range strings.Split(input, ",") {
+func validateCommaListHeader(name, input string) error {
+	for _, entry := range strings.Split(input, commaListSeparator) {
 		if len(entry) == 0 {
-			return nil, fmt.Errorf("trino: Empty item %s: %s", name, input)
+			return fmt.Errorf("trino: Empty item %s: %s", name, input)
 		}
 		if !isASCII(entry) {
-			return nil, fmt.Errorf("trino: %s list item '%s' contains spaces or is not printable ASCII", name, entry)
+			return fmt.Errorf("trino: %s list item '%s' contains spaces or is not printable ASCII", name, entry)
 		}
-		result = append(result, entry)
 	}
-	return result, nil
+	return nil
 }
 
 // registry for custom http clients
